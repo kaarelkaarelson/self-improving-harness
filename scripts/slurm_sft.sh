@@ -36,6 +36,8 @@ if [[ -f "$REPO_DIR/prime-rl/.venv/bin/activate" ]]; then
   source "$REPO_DIR/prime-rl/.venv/bin/activate"
 fi
 
+export PYTHONPATH="$REPO_DIR/scripts/prime_rl_compat${PYTHONPATH:+:$PYTHONPATH}"
+
 python3 scripts/run_prime_rl_sft.py \
   --prime-rl-dir prime-rl \
   --config "$CONFIG" \
