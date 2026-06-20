@@ -68,6 +68,33 @@ cd benchmarks && uv run python ../harness/mcp_server.py --domain sales --list-ta
 
 The agent gets 5 tools: `get_task`, `api_search`, `api_fetch`, `base64_encode`, `score`. After solving, `score` reports pass/fail per assertion. Full traces live in the agent's session history (`devin --export` or Claude Code JSONL).
 
+## Batch Runner (SFT Trace Generation)
+
+Generate traces for all 45 missing tasks (tasks where no model scored >= 0.5):
+
+```bash
+# Run all missing tasks with Opus 4.8:
+./harness/run_missing.sh
+
+# Run first 5 tasks only:
+./harness/run_missing.sh --limit 5
+
+# Use a different model:
+./harness/run_missing.sh --model claude-sonnet-4 --limit 3
+
+# Dry run (show what would be executed):
+./harness/run_missing.sh --dry-run
+```
+
+The script:
+1. Reads `data/missing_tasks.json` (45 tasks with no good trace)
+2. For each task, configures the MCP server and launches `devin -p` (non-interactive mode)
+3. Captures the ATIF trace via `--export` to `data/enriched/traces/`
+4. Extracts session ID and score to `data/enriched/results.jsonl`
+5. 10-minute timeout per task as safety net
+
+Traces are saved in Devin's native ATIF format at `~/.local/share/devin/cli/transcripts/{session_id}.json` and can be normalized for SFT using `data/artifacts/.../scripts/normalize_traces.py`.
+
 ## Gotchas
 
 - **"Insufficient balance"** -- add funds at [Prime billing](https://app.primeintellect.ai/dashboard/billing) under the `self-improving harness` team (not personal).
