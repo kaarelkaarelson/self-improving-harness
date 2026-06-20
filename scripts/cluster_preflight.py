@@ -46,6 +46,7 @@ def main() -> None:
         "triton",
         "flash_attn",
         "flash_attn_interface",
+        "causal_conv1d",
         "fla",
         "fla.ops",
         "tilelang",
@@ -75,7 +76,7 @@ def main() -> None:
         or isinstance(report.get("flash_attn_interface"), dict)
         and report["flash_attn_interface"].get("ok")
     )
-    required = ["torch", "triton", "fla", "tilelang"]
+    required = ["torch", "triton", "causal_conv1d", "fla", "tilelang"]
     failed = [name for name in required if not isinstance(report.get(name), dict) or not report[name].get("ok")]
     if not flash_ok:
         failed.append("flash_attn or flash_attn_interface")
