@@ -4,6 +4,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:8
 #SBATCH --cpus-per-task=64
+#SBATCH --mem=0
 #SBATCH --time=24:00:00
 #SBATCH --output=logs/%x-%j.out
 #SBATCH --error=logs/%x-%j.err
@@ -29,7 +30,7 @@ if [[ -z "${WANDB_API_KEY:-}" ]]; then
   exit 2
 fi
 
-python scripts/run_prime_rl_sft.py \
+python3 scripts/run_prime_rl_sft.py \
   --prime-rl-dir prime-rl \
   --config "$CONFIG" \
   --ckpt \
