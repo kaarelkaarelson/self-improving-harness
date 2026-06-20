@@ -194,6 +194,17 @@ cd /data/alex/dev/self-improving-harness
 sbatch scripts/slurm_sft.sh
 ```
 
+After training writes a HF-compatible `weights/step_<N>` directory, run an
+AutomationBench eval from a GPU allocation:
+
+```bash
+sbatch scripts/slurm_checkpoint_eval.sh \
+  prime-rl/outputs/automationbench-sft/weights/step_<N> \
+  --domains finance \
+  --num-examples 5 \
+  --output-json runs/sft_checkpoint_eval.json
+```
+
 ## Gotchas
 
 - **Local `prime eval run` crashes** with `'NoneType' object has no attribute 'get'` in verifiers 0.1.14. Use hosted Prime evals or run AutomationBench locally through `scripts/run_eval.py verifiers`.
