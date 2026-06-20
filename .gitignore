@@ -2,3 +2,13 @@ devin_history.md
 examples/
 .env
 __pycache__/
+*.pyc
+runs/
+data/
+artifacts/
+prime-rl/.venv/
+prime-rl/outputs/
+prime-rl/.cache/
+prime-rl/.ruff_cache/
+prime-rl/.mypy_cache/
+prime-rl/.pytest_cache/

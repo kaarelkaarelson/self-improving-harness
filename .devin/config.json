@@ -4,6 +4,7 @@
       "command": "uv",
       "args": [
         "run",
+        "--with", "mcp",
         "--directory", "./benchmarks",
         "python", "../harness/mcp_server.py",
         "--domain", "finance",

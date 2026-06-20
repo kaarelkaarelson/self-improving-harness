@@ -2,6 +2,14 @@
 
 Run AutomationBench tasks with any MCP-compatible coding agent (Devin CLI, Claude Code).
 
+This directory contains two MCP server entrypoints:
+
+- `mcp_server.py` loads a task by domain/index and exposes `get_task` and `score`
+  for interactive experimentation.
+- `mcp_bridge_server.py` is used by `native_eval.py`; it binds to an
+  already-materialized `initial_state.json`, exposes only the AutomationBench API
+  tools, and writes `final_state.json` for deterministic grading.
+
 ## How it works
 
 ```
@@ -40,8 +48,8 @@ The agent sees 5 tools:
 cd benchmarks && uv sync
 
 # Verify it works:
-uv run python ../harness/mcp_server.py --list-domains
-uv run python ../harness/mcp_server.py --domain finance --list-tasks
+uv run --with mcp python ../harness/mcp_server.py --list-domains
+uv run --with mcp python ../harness/mcp_server.py --domain finance --list-tasks
 ```
 
 ## Usage with Devin CLI
@@ -53,7 +61,7 @@ Add to your project config (`.devin/config.json`):
   "mcpServers": {
     "automationbench": {
       "command": "uv",
-      "args": ["run", "--directory", "./benchmarks", "python", "../harness/mcp_server.py", "--domain", "finance", "--task-index", "0"],
+      "args": ["run", "--with", "mcp", "--directory", "./benchmarks", "python", "../harness/mcp_server.py", "--domain", "finance", "--task-index", "0"],
       "cwd": "."
     }
   }
@@ -73,7 +81,7 @@ Add to `.claude/mcp.json`:
   "mcpServers": {
     "automationbench": {
       "command": "uv",
-      "args": ["run", "--directory", "./benchmarks", "python", "../harness/mcp_server.py", "--domain", "finance", "--task-index", "0"]
+      "args": ["run", "--with", "mcp", "--directory", "./benchmarks", "python", "../harness/mcp_server.py", "--domain", "finance", "--task-index", "0"]
     }
   }
 }
@@ -91,7 +99,7 @@ Edit the `--domain` and `--task-index` (or `--task-name`) args:
 --domain sales --task-name sales.multi_hop_lookup
 
 # List what's available:
-uv run python ../harness/mcp_server.py --domain sales --list-tasks
+uv run --with mcp python ../harness/mcp_server.py --domain sales --list-tasks
 ```
 
 ## Available domains
