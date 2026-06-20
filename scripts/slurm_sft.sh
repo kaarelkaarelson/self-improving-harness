@@ -12,7 +12,7 @@
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-/data/alex/dev/self-improving-harness}"
-CONFIG="${CONFIG:-data/automationbench_sft_qwen3_65536/sft.toml}"
+CONFIG="${1:-${CONFIG:-data/automationbench_sft_qwen3_65536/sft.toml}}"
 PRIVATE_ENV="${PRIVATE_ENV:-$HOME/.config/self-improving-harness/sft.env}"
 
 cd "$REPO_DIR"
