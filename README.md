@@ -171,6 +171,26 @@ ssh vp 'cd /data/alex/dev && git clone --recurse-submodules https://github.com/k
 scp artifacts/automationbench_traces_64k.tar.zst vp:/data/alex/dev/
 ```
 
+For cluster training, keep W&B credentials out of git. Put the personal key in a
+private env file on the cluster:
+
+```bash
+mkdir -p ~/.config/self-improving-harness
+cat > ~/.config/self-improving-harness/sft.env <<'EOF'
+WANDB_API_KEY=...
+WANDB_ENTITY=alexandonian
+WANDB_PROJECT=automationbench-sft
+EOF
+chmod 600 ~/.config/self-improving-harness/sft.env
+```
+
+Submit the generic `sft` Slurm job:
+
+```bash
+cd /data/alex/dev/self-improving-harness
+sbatch scripts/slurm_sft.sh
+```
+
 ## Gotchas
 
 - **Local `prime eval run` crashes** with `'NoneType' object has no attribute 'get'` in verifiers 0.1.14. Use hosted Prime evals or run AutomationBench locally through `scripts/run_eval.py verifiers`.
