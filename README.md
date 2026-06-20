@@ -27,6 +27,47 @@ export OPENAI_API_KEY=sk-...
 uv run auto-bench --model gpt-5-mini --domains finance --tasks finance.invoice_email_extract
 ```
 
+## Running with a Coding Agent (Devin / Claude Code)
+
+Instead of hitting a model API directly, you can run tasks through a coding agent via MCP. The agent sees the tools natively and its full reasoning trace is captured in the session history.
+
+```bash
+cd benchmarks && uv sync   # one-time setup
+```
+
+**With Devin CLI** (config already in `.devin/config.json`):
+
+```bash
+devin
+# Then: "Use the automationbench tools. Call get_task first to see the task,
+#        solve it using api_search and api_fetch, then call score."
+```
+
+**With Claude Code** (add to `.claude/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "automationbench": {
+      "command": "uv",
+      "args": ["run", "--directory", "./benchmarks", "python", "../harness/mcp_server.py", "--domain", "finance", "--task-index", "0"]
+    }
+  }
+}
+```
+
+**Change the task** by editing the `--domain` and `--task-index` (or `--task-name`) in the MCP config:
+
+```bash
+# List available tasks:
+cd benchmarks && uv run python ../harness/mcp_server.py --domain sales --list-tasks
+
+# Example: run sales.multi_hop_lookup
+# Set args to: [..., "--domain", "sales", "--task-name", "sales.multi_hop_lookup"]
+```
+
+The agent gets 5 tools: `get_task`, `api_search`, `api_fetch`, `base64_encode`, `score`. After solving, `score` reports pass/fail per assertion. Full traces live in the agent's session history (`devin --export` or Claude Code JSONL).
+
 ## Gotchas
 
 - **"Insufficient balance"** -- add funds at [Prime billing](https://app.primeintellect.ai/dashboard/billing) under the `self-improving harness` team (not personal).

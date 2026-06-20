@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "automationbench": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory", "./benchmarks",
+        "python", "../harness/mcp_server.py",
+        "--domain", "finance",
+        "--task-index", "0"
+      ]
+    }
+  }
+}

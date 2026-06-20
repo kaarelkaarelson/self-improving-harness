@@ -1,3 +1,4 @@
 devin_history.md
 examples/
 .env
+__pycache__/
