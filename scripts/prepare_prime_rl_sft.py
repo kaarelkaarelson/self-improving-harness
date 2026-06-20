@@ -714,6 +714,11 @@ def path_from_prime_rl_cwd(path: Path) -> Path:
         return resolved
 
 
+def is_qwen35_model(model_name: str) -> bool:
+    normalized = model_name.lower().replace("_", ".")
+    return "qwen3.5" in normalized
+
+
 def write_sft_config(
     path: Path,
     *,
@@ -725,26 +730,94 @@ def write_sft_config(
     max_steps: int,
     lr: float,
     validation: bool,
+    num_gpus: int,
+    gpus_per_node: int,
+    micro_batch_size: int | None,
+    attn: str | None,
+    cp: int,
+    cp_style: str | None,
+    model_impl: str | None,
+    optimization_dtype: str | None,
+    reduce_dtype: str | None,
+    loss_impl: str | None,
+    activation_checkpoint_freq: int | None,
+    pack_function: str | None,
 ) -> None:
     lines = [
         f"output_dir = {toml_quote(output_dir)}",
         f"max_steps = {max_steps}",
-        "",
-        "[ckpt]",
-        "",
-        "[model]",
-        f"name = {toml_quote(base_model)}",
-        f"seq_len = {seq_len}",
-        "",
-        "[data]",
-        f"name = {toml_quote(dataset_dir)}",
-        f"seq_len = {seq_len}",
-        f"batch_size = {batch_size}",
-        "",
-        "[optim]",
-        f"lr = {lr}",
-        "",
     ]
+    if loss_impl is not None:
+        lines.append(f"loss_impl = {toml_quote(loss_impl)}")
+    lines.append("")
+    if num_gpus > 1:
+        lines.extend(
+            [
+                "[deployment]",
+                'type = "single_node"',
+                f"num_gpus = {num_gpus}",
+                f"gpus_per_node = {gpus_per_node}",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "[ckpt]",
+            "",
+        ]
+    )
+    lines.extend(
+        [
+            "[model]",
+            f"name = {toml_quote(base_model)}",
+            f"seq_len = {seq_len}",
+        ]
+    )
+    if attn is not None:
+        lines.append(f"attn = {toml_quote(attn)}")
+    if cp > 1:
+        lines.append(f"cp = {cp}")
+    if cp_style is not None:
+        lines.append(f"cp_style = {toml_quote(cp_style)}")
+    if model_impl is not None:
+        lines.append(f"impl = {toml_quote(model_impl)}")
+    if optimization_dtype is not None:
+        lines.append(f"optimization_dtype = {toml_quote(optimization_dtype)}")
+    if reduce_dtype is not None:
+        lines.append(f"reduce_dtype = {toml_quote(reduce_dtype)}")
+    lines.append("")
+    if activation_checkpoint_freq is not None:
+        lines.extend(
+            [
+                "[model.compile]",
+                "",
+                "[model.ac]",
+                f"freq = {activation_checkpoint_freq}",
+                "",
+            ]
+        )
+    lines.extend(
+        [
+            "[data]",
+            'type = "sft"',
+            f"name = {toml_quote(dataset_dir)}",
+            'splits = ["train"]',
+            f"seq_len = {seq_len}",
+            f"batch_size = {batch_size}",
+        ]
+    )
+    if micro_batch_size is not None:
+        lines.append(f"micro_batch_size = {micro_batch_size}")
+    if pack_function is not None:
+        lines.append(f"pack_function = {toml_quote(pack_function)}")
+    lines.extend(
+        [
+            "",
+            "[optim]",
+            f"lr = {lr}",
+            "",
+        ]
+    )
     if validation:
         lines.extend(
             [
@@ -756,9 +829,11 @@ def write_sft_config(
                 'splits = ["validation"]',
                 f"seq_len = {seq_len}",
                 f"batch_size = {batch_size}",
-                "",
             ]
         )
+        if micro_batch_size is not None:
+            lines.append(f"micro_batch_size = {micro_batch_size}")
+        lines.append("")
     path.write_text("\n".join(lines))
 
 
@@ -815,10 +890,54 @@ def main() -> None:
     parser.add_argument("--base-model", default="PrimeIntellect/Qwen3-0.6B")
     parser.add_argument("--seq-len", type=int, default=8192)
     parser.add_argument("--batch-size", type=int, default=8)
+    parser.add_argument("--micro-batch-size", type=int)
     parser.add_argument("--max-steps", type=int, default=100)
     parser.add_argument("--lr", type=float, default=2e-5)
+    parser.add_argument("--num-gpus", type=int)
+    parser.add_argument("--gpus-per-node", type=int)
+    parser.add_argument("--attn")
+    parser.add_argument("--cp", type=int)
+    parser.add_argument("--cp-style", choices=["ring", "ulysses"])
+    parser.add_argument("--model-impl", choices=["hf", "custom", "auto"])
+    parser.add_argument("--optimization-dtype", choices=["bfloat16", "float32"])
+    parser.add_argument("--reduce-dtype", choices=["bfloat16", "float32"])
+    parser.add_argument("--loss-impl")
+    parser.add_argument("--activation-checkpoint-freq", type=int)
+    parser.add_argument("--pack-function")
     parser.add_argument("--prime-rl-output-dir", default="outputs/automationbench-sft")
     args = parser.parse_args()
+
+    qwen35_defaults = is_qwen35_model(args.base_model)
+    num_gpus = args.num_gpus if args.num_gpus is not None else (8 if qwen35_defaults else 1)
+    gpus_per_node = args.gpus_per_node if args.gpus_per_node is not None else num_gpus
+    cp = args.cp if args.cp is not None else (4 if qwen35_defaults and num_gpus >= 4 else 1)
+    micro_batch_size = args.micro_batch_size
+    if micro_batch_size is None and qwen35_defaults:
+        micro_batch_size = 1
+    cp_style = args.cp_style
+    if cp_style is None and cp > 1:
+        cp_style = "ulysses"
+    attn = args.attn
+    if attn is None and qwen35_defaults:
+        attn = "flash_attention_3"
+    model_impl = args.model_impl
+    if model_impl is None and qwen35_defaults:
+        model_impl = "custom"
+    optimization_dtype = args.optimization_dtype
+    if optimization_dtype is None and qwen35_defaults:
+        optimization_dtype = "bfloat16"
+    reduce_dtype = args.reduce_dtype
+    if reduce_dtype is None and qwen35_defaults:
+        reduce_dtype = "bfloat16"
+    loss_impl = args.loss_impl
+    if loss_impl is None and qwen35_defaults:
+        loss_impl = "liger_fused"
+    activation_checkpoint_freq = args.activation_checkpoint_freq
+    if activation_checkpoint_freq is None and qwen35_defaults:
+        activation_checkpoint_freq = 1
+    pack_function = args.pack_function
+    if pack_function is None and qwen35_defaults:
+        pack_function = "cat"
 
     input_paths = [Path(path) for path in args.input_jsonl]
     output_dir = Path(args.output_dir).resolve()
@@ -911,6 +1030,23 @@ def main() -> None:
             "dataset_name": str(prime_rl_dataset_dir),
             "output_dir": args.prime_rl_output_dir,
             "command": f"cd prime-rl && uv run sft @ {prime_rl_config_path} --ckpt",
+            "training_config": {
+                "base_model": args.base_model,
+                "seq_len": args.seq_len,
+                "batch_size": args.batch_size,
+                "micro_batch_size": micro_batch_size,
+                "num_gpus": num_gpus,
+                "gpus_per_node": gpus_per_node,
+                "attn": attn,
+                "cp": cp,
+                "cp_style": cp_style,
+                "model_impl": model_impl,
+                "optimization_dtype": optimization_dtype,
+                "reduce_dtype": reduce_dtype,
+                "loss_impl": loss_impl,
+                "activation_checkpoint_freq": activation_checkpoint_freq,
+                "pack_function": pack_function,
+            },
         },
     }
     write_json(output_dir / "manifest.json", manifest)
@@ -925,6 +1061,18 @@ def main() -> None:
         max_steps=args.max_steps,
         lr=args.lr,
         validation=bool(validation_rows),
+        num_gpus=num_gpus,
+        gpus_per_node=gpus_per_node,
+        micro_batch_size=micro_batch_size,
+        attn=attn,
+        cp=cp,
+        cp_style=cp_style,
+        model_impl=model_impl,
+        optimization_dtype=optimization_dtype,
+        reduce_dtype=reduce_dtype,
+        loss_impl=loss_impl,
+        activation_checkpoint_freq=activation_checkpoint_freq,
+        pack_function=pack_function,
     )
 
     print(f"Candidates: {len(candidates)}")
