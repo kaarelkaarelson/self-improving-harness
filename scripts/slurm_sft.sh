@@ -30,6 +30,12 @@ if [[ -z "${WANDB_API_KEY:-}" ]]; then
   exit 2
 fi
 
+if [[ -f "$REPO_DIR/prime-rl/.venv/bin/activate" ]]; then
+  # Ensure trainer subprocesses resolve python/torchrun from Prime-RL's env.
+  # The sft entrypoint launches torchrun internally.
+  source "$REPO_DIR/prime-rl/.venv/bin/activate"
+fi
+
 python3 scripts/run_prime_rl_sft.py \
   --prime-rl-dir prime-rl \
   --config "$CONFIG" \
