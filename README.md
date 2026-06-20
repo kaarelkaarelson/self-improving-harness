@@ -127,7 +127,7 @@ python scripts/prepare_prime_rl_sft.py \
   --workers 8 \
   --base-model Qwen/Qwen3.5-9B \
   --seq-len 65536 \
-  --batch-size 2
+  --batch-size 8
 ```
 
 The output includes:
@@ -149,8 +149,11 @@ python scripts/run_prime_rl_sft.py \
 Serve a checkpoint for re-eval:
 
 ```bash
-cd prime-rl
-uv run inference --model.name outputs/automationbench-sft/weights/step_<N> --server.port 8000
+python scripts/deploy_checkpoint_eval.py \
+  --checkpoint prime-rl/outputs/automationbench-sft/weights/step_<N> \
+  --domains finance \
+  --num-examples 5 \
+  --output-json runs/sft_checkpoint_eval.json
 ```
 
 ## Transfer To Cluster
@@ -197,6 +200,7 @@ sbatch scripts/slurm_sft.sh
 - **Native MCP server env**: `harness/mcp_bridge_server.py` removes `OPENAI_API_KEY` from its own process so simulated helper paths stay offline. Use `CODEX_API_KEY` or saved agent auth for the coding agent itself.
 - **API search index**: native tasks write the BM25 index inside each task run directory, not inside the AutomationBench submodule.
 - **Grading**: native evals pass `initial_state` into the rubric so AutomationBench's free-assertion exclusion is preserved.
+- **Qwen3.5 SFT context parallelism**: start with `cp=1` at 64k on 8x80GB H100. That path smoke-tested cleanly at ~50 GiB peak memory. The Qwen3.5 `cp=4` Ulysses/hybrid FLA path produced NaN gradients/losses in smoke tests, so only use it with `--cp 4` after validating the Prime-RL/model path.
 
 ## Benchmarks
 

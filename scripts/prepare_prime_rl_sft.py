@@ -740,6 +740,8 @@ def write_sft_config(
     optimization_dtype: str | None,
     reduce_dtype: str | None,
     loss_impl: str | None,
+    renderer_name: str | None,
+    renderer_enable_thinking: bool | None,
     activation_checkpoint_freq: int | None,
     pack_function: str | None,
 ) -> None:
@@ -760,6 +762,16 @@ def write_sft_config(
                 "",
             ]
         )
+    if renderer_name is not None:
+        lines.extend(
+            [
+                "[renderer]",
+                f"name = {toml_quote(renderer_name)}",
+            ]
+        )
+        if renderer_enable_thinking is not None:
+            lines.append(f"enable_thinking = {str(renderer_enable_thinking).lower()}")
+        lines.append("")
     lines.extend(
         [
             "[ckpt]",
@@ -825,6 +837,7 @@ def write_sft_config(
                 "interval = 50",
                 "",
                 "[val.data]",
+                'type = "sft"',
                 f"name = {toml_quote(dataset_dir)}",
                 'splits = ["validation"]',
                 f"seq_len = {seq_len}",
@@ -910,7 +923,10 @@ def main() -> None:
     qwen35_defaults = is_qwen35_model(args.base_model)
     num_gpus = args.num_gpus if args.num_gpus is not None else (8 if qwen35_defaults else 1)
     gpus_per_node = args.gpus_per_node if args.gpus_per_node is not None else num_gpus
-    cp = args.cp if args.cp is not None else (4 if qwen35_defaults and num_gpus >= 4 else 1)
+    # Qwen3.5 64k SFT is stable on 8x80GB H100 with cp=1 (~50 GiB peak).
+    # The cp=4 Ulysses/hybrid FLA path produced NaN gradients/losses in smoke
+    # tests, so keep CP opt-in until that Prime-RL/model path is fixed.
+    cp = args.cp if args.cp is not None else 1
     micro_batch_size = args.micro_batch_size
     if micro_batch_size is None and qwen35_defaults:
         micro_batch_size = 1
@@ -932,6 +948,8 @@ def main() -> None:
     loss_impl = args.loss_impl
     if loss_impl is None and qwen35_defaults:
         loss_impl = "liger_fused"
+    renderer_name = "qwen3.5" if qwen35_defaults else None
+    renderer_enable_thinking = True if qwen35_defaults else None
     activation_checkpoint_freq = args.activation_checkpoint_freq
     if activation_checkpoint_freq is None and qwen35_defaults:
         activation_checkpoint_freq = 1
@@ -1044,6 +1062,8 @@ def main() -> None:
                 "optimization_dtype": optimization_dtype,
                 "reduce_dtype": reduce_dtype,
                 "loss_impl": loss_impl,
+                "renderer_name": renderer_name,
+                "renderer_enable_thinking": renderer_enable_thinking,
                 "activation_checkpoint_freq": activation_checkpoint_freq,
                 "pack_function": pack_function,
             },
@@ -1071,6 +1091,8 @@ def main() -> None:
         optimization_dtype=optimization_dtype,
         reduce_dtype=reduce_dtype,
         loss_impl=loss_impl,
+        renderer_name=renderer_name,
+        renderer_enable_thinking=renderer_enable_thinking,
         activation_checkpoint_freq=activation_checkpoint_freq,
         pack_function=pack_function,
     )
