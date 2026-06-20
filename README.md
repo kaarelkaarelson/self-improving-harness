@@ -151,6 +151,9 @@ Serve a checkpoint for re-eval:
 ```bash
 python scripts/deploy_checkpoint_eval.py \
   --checkpoint prime-rl/outputs/automationbench-sft/weights/step_<N> \
+  --processor-source Qwen/Qwen3.5-9B \
+  --max-model-len 65536 \
+  --gdn-prefill-backend triton \
   --domains finance \
   --num-examples 5 \
   --output-json runs/sft_checkpoint_eval.json
@@ -200,6 +203,9 @@ AutomationBench eval from a GPU allocation:
 ```bash
 sbatch scripts/slurm_checkpoint_eval.sh \
   prime-rl/outputs/automationbench-sft/weights/step_<N> \
+  --processor-source Qwen/Qwen3.5-9B \
+  --max-model-len 65536 \
+  --gdn-prefill-backend triton \
   --domains finance \
   --num-examples 5 \
   --output-json runs/sft_checkpoint_eval.json
@@ -211,6 +217,8 @@ sbatch scripts/slurm_checkpoint_eval.sh \
 - **Native MCP server env**: `harness/mcp_bridge_server.py` removes `OPENAI_API_KEY` from its own process so simulated helper paths stay offline. Use `CODEX_API_KEY` or saved agent auth for the coding agent itself.
 - **API search index**: native tasks write the BM25 index inside each task run directory, not inside the AutomationBench submodule.
 - **Grading**: native evals pass `initial_state` into the rubric so AutomationBench's free-assertion exclusion is preserved.
+- **Checkpoint eval tool calling**: local checkpoint paths do not look like `Qwen/Qwen3.5-*`, so parser auto-detection can miss. `scripts/deploy_checkpoint_eval.py` resolves Qwen3.5 checkpoints from `--processor-source` or checkpoint config and passes `qwen3_coder`/`qwen3` to Prime-RL inference.
+- **Qwen3.5 checkpoint serving**: use `--gdn-prefill-backend triton` if FlashInfer GDN JIT stalls or cannot compile on the node.
 - **Qwen3.5 SFT context parallelism**: start with `cp=1` at 64k on 8x80GB H100. That path smoke-tested cleanly at ~50 GiB peak memory. The Qwen3.5 `cp=4` Ulysses/hybrid FLA path produced NaN gradients/losses in smoke tests, so only use it with `--cp 4` after validating the Prime-RL/model path.
 
 ## Benchmarks

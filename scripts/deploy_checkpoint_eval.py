@@ -12,11 +12,130 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
+from glob import glob
+from re import search
 from urllib.error import URLError
 from urllib.request import urlopen
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+NONE_VALUES = {"", "none", "null", "false", "off", "disable", "disabled"}
+
+
+def read_checkpoint_config(checkpoint: str) -> dict[str, object]:
+    path = Path(checkpoint)
+    if not path.exists():
+        return {}
+    config_path = path / "config.json"
+    if not config_path.exists():
+        return {}
+    try:
+        with config_path.open() as file:
+            payload = json.load(file)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def checkpoint_model_hints(args: argparse.Namespace) -> list[str]:
+    hints: list[str] = []
+    if args.processor_source:
+        hints.append(str(args.processor_source))
+
+    config = read_checkpoint_config(checkpoint_path(args))
+    for key in ("_name_or_path", "name_or_path", "model_type"):
+        value = config.get(key)
+        if isinstance(value, str) and value:
+            hints.append(value)
+    architectures = config.get("architectures")
+    if isinstance(architectures, list):
+        hints.extend(str(item) for item in architectures if item)
+
+    hints.append(checkpoint_path(args))
+    return hints
+
+
+def resolve_auto_parser(args: argparse.Namespace, *, kind: str) -> str | None:
+    hints = checkpoint_model_hints(args)
+    joined = "\n".join(hints)
+
+    if kind == "tool_call":
+        patterns = [
+            (r"(^|\n)Qwen/Qwen3\.5-|qwen3_5|Qwen3_5", "qwen3_coder"),
+            (r"(^|\n)Qwen/Qwen3-Coder|qwen3_coder", "qwen3_coder"),
+            (r"(^|\n)Qwen/Qwen3-", "hermes"),
+        ]
+    elif kind == "reasoning":
+        patterns = [
+            (r"(^|\n)Qwen/Qwen3\.5-|qwen3_5|Qwen3_5", "qwen3"),
+            (r"(^|\n)Qwen/Qwen3-.*Thinking", "deepseek_r1"),
+        ]
+    else:
+        raise ValueError(f"Unknown parser kind: {kind}")
+
+    for pattern, parser_name in patterns:
+        if search(pattern, joined):
+            return parser_name
+    return None
+
+
+def parser_arg(value: str, args: argparse.Namespace, *, kind: str) -> str | None:
+    normalized = value.strip()
+    if normalized.lower() == "auto":
+        return resolve_auto_parser(args, kind=kind)
+    if normalized.lower() in NONE_VALUES:
+        return "None"
+    return normalized
+
+
+def prepend_env_path(env: dict[str, str], key: str, path: Path) -> None:
+    current = env.get(key)
+    value = str(path)
+    if current:
+        parts = current.split(os.pathsep)
+        if value in parts:
+            return
+        env[key] = os.pathsep.join([value, *parts])
+    else:
+        env[key] = value
+
+
+def add_cuda_include_paths(env: dict[str, str]) -> list[Path]:
+    candidates: list[Path] = []
+    cuda_home = env.get("CUDA_HOME")
+    if cuda_home:
+        home = Path(cuda_home)
+        candidates.extend([home / "include", home / "targets" / "x86_64-linux" / "include"])
+    candidates.extend(
+        [
+            Path("/usr/local/cuda/include"),
+            Path("/usr/local/cuda/targets/x86_64-linux/include"),
+            Path("/usr/local/cuda-12.9/targets/x86_64-linux/include"),
+        ]
+    )
+    candidates.extend(Path(path) for path in glob("/usr/local/cuda-*/targets/x86_64-linux/include"))
+
+    added: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate in seen or not (candidate / "cuda_runtime.h").exists():
+            continue
+        seen.add(candidate)
+        for key in ("CPATH", "C_INCLUDE_PATH", "CPLUS_INCLUDE_PATH"):
+            prepend_env_path(env, key, candidate)
+        added.append(candidate)
+
+    if added and not env.get("CUDA_HOME"):
+        for include_path in added:
+            possible_roots = [include_path.parent]
+            if len(include_path.parents) > 2:
+                possible_roots.append(include_path.parents[2])
+            for root in possible_roots:
+                if (root / "bin" / "nvcc").exists():
+                    env["CUDA_HOME"] = str(root)
+                    return added
+    return added
 
 
 def default_run_dir(checkpoint: str) -> Path:
@@ -68,6 +187,17 @@ def inference_command(args: argparse.Namespace) -> list[str]:
         command += ["--model.max-model-len", str(args.max_model_len)]
     if args.enforce_eager:
         command.append("--model.enforce-eager")
+    tool_call_parser = parser_arg(args.tool_call_parser, args, kind="tool_call")
+    if tool_call_parser is not None:
+        command += ["--model.tool-call-parser", tool_call_parser]
+    reasoning_parser = parser_arg(args.reasoning_parser, args, kind="reasoning")
+    if reasoning_parser is not None:
+        command += ["--model.reasoning-parser", reasoning_parser]
+    vllm_extra = {}
+    if args.gdn_prefill_backend:
+        vllm_extra["gdn_prefill_backend"] = args.gdn_prefill_backend
+    if vllm_extra:
+        command += ["--vllm-extra", json.dumps(vllm_extra, sort_keys=True)]
     command += args.inference_args
     return command
 
@@ -175,6 +305,27 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-model-len", type=int)
     parser.add_argument("--enforce-eager", action="store_true")
     parser.add_argument(
+        "--gdn-prefill-backend",
+        choices=["auto", "triton", "flashinfer"],
+        help="vLLM GDN prefill backend for Qwen3.5. Use 'triton' to skip FlashInfer JIT.",
+    )
+    parser.add_argument(
+        "--tool-call-parser",
+        default="auto",
+        help=(
+            "Prime-RL/vLLM tool-call parser. Defaults to auto resolution from --processor-source "
+            "or checkpoint config; use 'none' to disable."
+        ),
+    )
+    parser.add_argument(
+        "--reasoning-parser",
+        default="auto",
+        help=(
+            "Prime-RL/vLLM reasoning parser. Defaults to auto resolution from --processor-source "
+            "or checkpoint config; use 'none' to disable."
+        ),
+    )
+    parser.add_argument(
         "--processor-source",
         help="Optional source model/path to copy processor assets into a local checkpoint before serving.",
     )
@@ -228,10 +379,16 @@ def main() -> int:
     env = os.environ.copy()
     compat_path = str(ROOT / "scripts" / "prime_rl_compat")
     env["PYTHONPATH"] = f"{compat_path}{os.pathsep}{env['PYTHONPATH']}" if env.get("PYTHONPATH") else compat_path
+    cuda_include_paths = add_cuda_include_paths(env)
 
     command = inference_command(args)
     print("Inference command:", flush=True)
     print(" ".join(command), flush=True)
+    if cuda_include_paths:
+        print(
+            "CUDA include paths: " + ", ".join(str(path) for path in cuda_include_paths),
+            flush=True,
+        )
     print(f"Inference log: {run_dir / 'inference.log'}", flush=True)
     if args.dry_run:
         model = args.eval_model or args.checkpoint
