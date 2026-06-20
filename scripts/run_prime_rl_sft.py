@@ -27,7 +27,11 @@ def main() -> None:
     if not prime_rl_dir.exists():
         raise SystemExit(f"Prime-RL directory does not exist: {prime_rl_dir}")
 
-    command = ["uv", "run", "sft", "@", str(config)]
+    sft_entrypoint = prime_rl_dir / ".venv" / "bin" / "sft"
+    if sft_entrypoint.exists():
+        command = [str(sft_entrypoint), "@", str(config)]
+    else:
+        command = ["uv", "run", "sft", "@", str(config)]
     if args.ckpt:
         command.append("--ckpt")
     if args.wandb:
