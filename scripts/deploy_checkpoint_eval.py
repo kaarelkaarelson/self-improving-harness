@@ -25,6 +25,25 @@ def default_run_dir(checkpoint: str) -> Path:
     return ROOT / "runs" / "checkpoint_eval" / f"{stamp}_{safe_name}"
 
 
+def checkpoint_path(args: argparse.Namespace) -> str:
+    return str(Path(args.checkpoint).resolve() if args.resolve_checkpoint else args.checkpoint)
+
+
+def maybe_copy_processor_assets(args: argparse.Namespace) -> None:
+    if not args.processor_source:
+        return
+    target = Path(checkpoint_path(args))
+    if not target.exists():
+        return
+    if (target / "preprocessor_config.json").exists() or (target / "processor_config.json").exists():
+        return
+
+    from transformers import AutoProcessor
+
+    processor = AutoProcessor.from_pretrained(args.processor_source, trust_remote_code=args.trust_remote_code)
+    processor.save_pretrained(target)
+
+
 def inference_command(args: argparse.Namespace) -> list[str]:
     prime_rl_dir = Path(args.prime_rl_dir).resolve()
     inference_entrypoint = prime_rl_dir / ".venv" / "bin" / "inference"
@@ -35,7 +54,7 @@ def inference_command(args: argparse.Namespace) -> list[str]:
 
     command += [
         "--model.name",
-        str(Path(args.checkpoint).resolve() if args.resolve_checkpoint else args.checkpoint),
+        checkpoint_path(args),
         "--server.host",
         args.bind_host,
         "--server.port",
@@ -53,10 +72,12 @@ def inference_command(args: argparse.Namespace) -> list[str]:
     return command
 
 
-def wait_for_models(base_url: str, timeout_sec: int) -> list[str]:
+def wait_for_models(base_url: str, timeout_sec: int, process: subprocess.Popen[str]) -> list[str]:
     deadline = time.monotonic() + timeout_sec
     last_error: str | None = None
     while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(f"Inference server exited before readiness with code {process.returncode}: {last_error}")
         try:
             with urlopen(f"{base_url}/models", timeout=5) as response:
                 payload = json.loads(response.read().decode("utf-8"))
@@ -154,6 +175,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-model-len", type=int)
     parser.add_argument("--enforce-eager", action="store_true")
     parser.add_argument(
+        "--processor-source",
+        help="Optional source model/path to copy processor assets into a local checkpoint before serving.",
+    )
+    parser.add_argument("--trust-remote-code", action="store_true")
+    parser.add_argument(
         "--no-resolve-checkpoint",
         action="store_false",
         dest="resolve_checkpoint",
@@ -212,6 +238,8 @@ def main() -> int:
         eval_cmd = eval_command(args, base_url=base_url, model=model, output_json=output_json)
         return run_command(eval_cmd, cwd=ROOT, env=env, log_path=None, dry_run=True)
 
+    maybe_copy_processor_assets(args)
+
     log = (run_dir / "inference.log").open("w")
     process = subprocess.Popen(
         command,
@@ -233,7 +261,7 @@ def main() -> int:
     signal.signal(signal.SIGTERM, handle_signal)
 
     try:
-        models = wait_for_models(base_url, args.wait_timeout_sec)
+        models = wait_for_models(base_url, args.wait_timeout_sec, process)
         model = args.eval_model or models[0]
         print(f"Inference ready at {base_url}; model={model}", flush=True)
         if args.serve_only:
