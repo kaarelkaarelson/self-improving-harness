@@ -6,6 +6,8 @@ third-party imports, even before Prime-RL's editable package is importable.
 """
 
 from pathlib import Path
+import importlib.abc
+import importlib.machinery
 import sys
 
 try:
@@ -31,7 +33,7 @@ def _ensure_prime_rl_src_importable() -> None:
         sys.path.insert(0, str(prime_rl_src))
 
 
-def _patch_fused_ce_zero_token_shards() -> None:
+def _apply_fused_ce_zero_token_patch(module) -> None:
     """Avoid NaN loss on CP shards whose labels are all ignore_index.
 
     Under context parallelism, a shard can contain no trainable SFT tokens even
@@ -40,11 +42,9 @@ def _patch_fused_ce_zero_token_shards() -> None:
     by zero instead, preserving graph/collective participation with zero grad.
     """
 
-    try:
-        import torch
-        from prime_rl.trainer.models.layers.lm_head import FusedCrossEntropyOutputLinear, PrimeLmOutput
-    except ModuleNotFoundError:
-        return
+    FusedCrossEntropyOutputLinear = module.FusedCrossEntropyOutputLinear
+    PrimeLmOutput = module.PrimeLmOutput
+    torch = module.torch
 
     if getattr(FusedCrossEntropyOutputLinear, "_sih_zero_token_patch", False):
         return
@@ -63,5 +63,42 @@ def _patch_fused_ce_zero_token_shards() -> None:
     FusedCrossEntropyOutputLinear._sih_zero_token_patch = True
 
 
+class _FusedCEPatchLoader(importlib.abc.Loader):
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+
+    def create_module(self, spec):
+        create_module = getattr(self.wrapped, "create_module", None)
+        if create_module is None:
+            return None
+        return create_module(spec)
+
+    def exec_module(self, module) -> None:
+        self.wrapped.exec_module(module)
+        _apply_fused_ce_zero_token_patch(module)
+
+
+class _FusedCEPatchFinder(importlib.abc.MetaPathFinder):
+    TARGET = "prime_rl.trainer.models.layers.lm_head"
+
+    def find_spec(self, fullname, path, target=None):
+        if fullname != self.TARGET:
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        if spec is not None and spec.loader is not None:
+            spec.loader = _FusedCEPatchLoader(spec.loader)
+        return spec
+
+
+def _install_fused_ce_patch_hook() -> None:
+    target = _FusedCEPatchFinder.TARGET
+    module = sys.modules.get(target)
+    if module is not None:
+        _apply_fused_ce_zero_token_patch(module)
+        return
+    if not any(isinstance(finder, _FusedCEPatchFinder) for finder in sys.meta_path):
+        sys.meta_path.insert(0, _FusedCEPatchFinder())
+
+
 _ensure_prime_rl_src_importable()
-_patch_fused_ce_zero_token_shards()
+_install_fused_ce_patch_hook()
