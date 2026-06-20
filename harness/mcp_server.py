@@ -21,6 +21,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -295,13 +296,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
 async def main():
     parser = argparse.ArgumentParser(description="AutomationBench MCP Server")
-    parser.add_argument("--domain", type=str, default="finance", help="Task domain")
-    parser.add_argument("--task-index", type=int, default=0, help="Task index within domain")
+    parser.add_argument("--domain", type=str, default=None, help="Task domain")
+    parser.add_argument("--task-index", type=int, default=None, help="Task index within domain")
     parser.add_argument("--task-name", type=str, default=None, help="Task name (overrides --task-index)")
     parser.add_argument("--list-tasks", action="store_true", help="List available tasks and exit")
     parser.add_argument("--list-domains", action="store_true", help="List available domains and exit")
 
     args = parser.parse_args()
+
+    # Env vars override CLI args (for batch runner)
+    args.domain = os.environ.get("AB_DOMAIN", args.domain) or "finance"
+    if args.task_index is None:
+        args.task_index = int(os.environ.get("AB_TASK_INDEX", "0"))
+    args.task_name = os.environ.get("AB_TASK_NAME", args.task_name)
 
     if args.list_domains:
         domains = get_available_domains()

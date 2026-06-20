@@ -2,3 +2,9 @@ devin_history.md
 examples/
 .env
 __pycache__/
+outputs/
+data/enriched/logs/
+data/enriched/traces/
+data/enriched/results.jsonl
+data/automationbench_trace_coverage_share_2026-06-20.zip
+traces/

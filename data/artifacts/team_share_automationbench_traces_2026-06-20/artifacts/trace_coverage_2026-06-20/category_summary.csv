@@ -1,0 +1,7 @@
+category,task_count,tasks_with_good,tasks_with_strict,tasks_without_good,tasks_without_strict,good_trace_count,strict_trace_count,avg_best_partial_credit
+finance,100,93,35,7,65,1208,221,0.7810075757575757
+hr,100,90,33,10,67,949,162,0.7592630425130424
+marketing,100,98,53,2,47,2282,459,0.8895899971631396
+operations,100,93,50,7,50,1906,364,0.8221904761904761
+sales,100,85,34,15,66,1176,232,0.7314403929403929
+support,100,96,22,4,78,1786,125,0.8223379598879883

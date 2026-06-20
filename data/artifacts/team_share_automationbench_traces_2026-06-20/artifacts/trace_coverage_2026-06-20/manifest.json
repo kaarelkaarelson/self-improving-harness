@@ -1,0 +1,11 @@
+{
+  "input_jsonl": [
+    "runs/prime_leaderboard_all.jsonl"
+  ],
+  "good_threshold": 0.5,
+  "diversity_target": 5,
+  "tasks": 600,
+  "tasks_needing_attention": 416,
+  "tasks_without_good": 45,
+  "tasks_without_strict": 373
+}
