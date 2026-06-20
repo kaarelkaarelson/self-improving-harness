@@ -45,6 +45,7 @@ def main() -> None:
     for name in [
         "triton",
         "flash_attn",
+        "flash_attn_interface",
         "fla",
         "fla.ops",
         "tilelang",
@@ -68,8 +69,16 @@ def main() -> None:
         report["nvidia_smi"] = {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
     print(json.dumps(report, indent=2, sort_keys=True))
-    required = ["torch", "triton", "flash_attn", "fla", "tilelang"]
+    flash_ok = bool(
+        isinstance(report.get("flash_attn"), dict)
+        and report["flash_attn"].get("ok")
+        or isinstance(report.get("flash_attn_interface"), dict)
+        and report["flash_attn_interface"].get("ok")
+    )
+    required = ["torch", "triton", "fla", "tilelang"]
     failed = [name for name in required if not isinstance(report.get(name), dict) or not report[name].get("ok")]
+    if not flash_ok:
+        failed.append("flash_attn or flash_attn_interface")
     if failed:
         raise SystemExit(f"Missing or broken required modules: {', '.join(failed)}")
 
